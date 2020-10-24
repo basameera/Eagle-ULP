@@ -1,10 +1,32 @@
 #require 6.5100
 
-#usage "en: ULP - Library"
+#usage "en:<qt><b>Create custom SMD tCream for QFP and SOP package</b>"
+       "<p>"
+       "This ULP generates a SCRIPT file that draws rectangles on top of each SMD pad.<br>"
+       "These rectangles are smaller than the size of the pad. "
+	   "This allow the creation of stencils with smaller cut-outs, which removes "
+	   "the problem of adjacent pads shorting during reflow process."
+	   "<br><br>"
+       "<author>Author: Sameera Sandaruwan - basameera@protonmail.com</author></qt>"
 
-string Version="0.1";
-string Name="<b>SMD tCream</b>";
+// THIS PROGRAM IS PROVIDED AS IS AND WITHOUT WARRANTY OF ANY KIND, EXPRESSED OR IMPLIED
 
+
+// Revision history:
+//
+// 1.0
+// - Initial release
+//
+// 1.1
+
+
+// ToDo
+// * Add option to select Quad pack (QFP) or Small Outline pack (SOP) and use # of pads
+//	 to decide vertical and horizontal pads. Then only shrink the width.
+// * Add option to change shrink percentage.
+
+string Version="1.0";
+string Name="Custom SMD tCream";
 
 string abc,temp;
 string lst_packages[];
@@ -13,14 +35,15 @@ int Selected = -1, line_Selected = -1;
 string Headers = "Name\tX\tY\tdx\tdy\tAngle";
 string t_line;
 string t_data[];
+int data_count=0;
 
 string script_filename = "add_tCream.scr";
 string script_path;
 
 if (library) {
-  library(L) {
-    script_path = filedir(L.name);
-  }
+	library(L) {
+		script_path = filedir(L.name);
+	}
 }
 
 // === functions ===
@@ -32,8 +55,6 @@ void get_packages(void){
 	}
 	}
 }
-
-
 
 void runscript(void) {
 	int Result=0;
@@ -58,7 +79,7 @@ void runscript(void) {
 	else exit (0);
 }
 
-void calc_tc_box(string data_line){
+string calc_tc_box(string data_line){
 	real h_min=0.1, w_min=0.1;//mm
 	real sz_perc=0.8;//80%
 	
@@ -86,18 +107,40 @@ void calc_tc_box(string data_line){
 	y1 = y - (h/2);
 	y2 = y + (h/2);
 	
+	string data;
+	sprintf(data, "RECT (%f %f)(%f %f);\n", x1, y1, x2, y2);
+	return data;
+}
+
+void write_script(string data){
 	output(script_path + script_filename, "wtD"){
 		printf("change layer 31;\n");
-		printf("RECT (%f %f)(%f %f);\n", x1, y1, x2, y2);
+		printf(data);
 	}
 	
 	runscript();
 }
 
+void some_func(string data_line){
+	string data = calc_tc_box(data_line);
+	write_script(data);
+}
+
+void apply_all_tCream(void){
+	int l_count=0;
+	string data_line, data_all;
+	while(l_count<data_count){
+		
+		data_line = calc_tc_box(t_data[l_count]);
+		data_all+=data_line;
+		l_count++;
+	}
+	write_script(data_all);
+}
+
 //Get information (e.g. position, size, angle, ...) about a package
 //and show them in a table
 void get_smd_info(string pac_name){
-	int data_count=0;
 	
 	////====================
 	library(L) {
@@ -112,30 +155,47 @@ void get_smd_info(string pac_name){
 				}
 			}
 		}
-	}		
 	}
+	}
+	
 	dlgDialog("Window 2") {
-		dlgHBoxLayout dlgSpacing(300);
+		dlgHBoxLayout dlgSpacing(280);
 		dlgLabel("<b>"+pac_name+"</b>");
-		dlgListView(Headers, t_data, line_Selected) calc_tc_box(t_data[line_Selected]);
-		string num_smds;
-		sprintf(num_smds,"%d",data_count);
-		dlgLabel("# SMDs: " + num_smds);
+		dlgListView(Headers, t_data, line_Selected) some_func(t_data[line_Selected]);
+		dlgHBoxLayout {
+			string num_smds;
+			sprintf(num_smds, "%d", data_count);
+			dlgLabel("# SMDs: " + num_smds);
+			dlgStretch(1);
+			dlgPushButton("Apply All") apply_all_tCream();
+		}
 	};
 }
 
 //main
 if (library) {
 	int Result = 0;
-	Result = dlgDialog("Select Package") {
+	Result = dlgDialog(Name) {
 		//GUI
 		dlgHBoxLayout dlgSpacing(200);
-		dlgLabel(Name);
+		dlgLabel("<b>"+Name+"</b>");
 		get_packages();
 		
 		dlgComboBox(lst_packages, Selected) get_smd_info(lst_packages[Selected]); 
 		
-		dlgLabel("Version " + Version);
+		dlgHBoxLayout {
+			dlgLabel("Version " + Version);
+			dlgStretch(1);
+			// dlgPushButton("Help") dlgMessageBox(usage, "Close");
+			
+			dlgPushButton("Help") dlgDialog("Help") {
+				dlgHBoxLayout dlgSpacing(300);
+				dlgVBoxLayout {
+					dlgTextView(usage);
+					dlgPushButton("-Close") dlgReject();
+				}
+			};
+		}
 	};
 
 }
