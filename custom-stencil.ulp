@@ -18,14 +18,16 @@
 // - Initial release
 //
 // 1.1
-
+// - Add option to change shrink percentage.
 
 // ToDo
-// * Add option to select Quad pack (QFP) or Small Outline pack (SOP) and use # of pads
+// - Add option to select Quad pack (QFP) or Small Outline pack (SOP) and use # of pads
 //	 to decide vertical and horizontal pads. Then only shrink the width.
-// * Add option to change shrink percentage.
 
-string Version="1.0";
+// int DEBUG=1;
+int DEBUG=0;
+
+string Version="1.1-dev";
 string Name="Custom SMD tCream";
 
 string abc,temp;
@@ -39,6 +41,15 @@ int data_count=0;
 
 string script_filename = "add_tCream.scr";
 string script_path;
+
+real h_min=0.1, w_min=0.1;//mm
+real h_perc=0.75;
+real w_perc=1.0;
+int num_smds;
+int sides = 4;
+
+int pads_per_side;
+int limits[];
 
 if (library) {
 	library(L) {
@@ -80,8 +91,6 @@ void runscript(void) {
 }
 
 string calc_tc_box(string data_line){
-	real h_min=0.1, w_min=0.1;//mm
-	real sz_perc=0.8;//80%
 	
 	string list[];
 	strsplit(list, data_line, '\t');
@@ -93,9 +102,22 @@ string calc_tc_box(string data_line){
 	dy = strtod(list[4]);
 	
 	real h, w, x1, x2, y1, y2;
+	
+	int smd_id = strtod(list[0]);
+	real h_perc_new, w_perc_new;
+	
+	if ((smd_id>limits[0] && smd_id<=limits[1]) || (smd_id>limits[2] && smd_id<=limits[3])){
+		h_perc_new = w_perc;
+		w_perc_new = h_perc;
+	} 
+	else {
+		h_perc_new = h_perc;
+		w_perc_new = w_perc;
+	}
+	
 	//calc h,w of the box
-	h = sz_perc*dy;
-	w = sz_perc*dx;
+	h = h_perc_new*dy;
+	w = w_perc_new*dx;
 	
 	//constraint box size
 	if (h<h_min) h=h_min;
@@ -114,10 +136,9 @@ string calc_tc_box(string data_line){
 
 void write_script(string data){
 	output(script_path + script_filename, "wtD"){
-		printf("change layer 31;\n");
+		printf("grid mm;\nchange layer 31;\n");
 		printf(data);
 	}
-	
 	runscript();
 }
 
@@ -160,15 +181,85 @@ void get_smd_info(string pac_name){
 	
 	dlgDialog("Window 2") {
 		dlgHBoxLayout dlgSpacing(280);
-		dlgLabel("<b>"+pac_name+"</b>");
-		dlgListView(Headers, t_data, line_Selected) some_func(t_data[line_Selected]);
+		
+		string num_smds_str;
+		sprintf(num_smds_str, "%d", data_count);
+		num_smds = data_count;
+		
 		dlgHBoxLayout {
-			string num_smds;
-			sprintf(num_smds, "%d", data_count);
-			dlgLabel("# SMDs: " + num_smds);
+			dlgLabel("<b>"+pac_name+"</b>");
 			dlgStretch(1);
-			dlgPushButton("Apply All") apply_all_tCream();
+			dlgLabel("# SMDs: " + num_smds_str);
 		}
+		
+		dlgListView(Headers, t_data, line_Selected) some_func(t_data[line_Selected]);
+		
+		dlgHBoxLayout {
+			dlgGroup("Horizontal") {
+				dlgVBoxLayout {
+					dlgHBoxLayout {
+						dlgLabel("W_min\t: ");
+						dlgRealEdit(w_min, 0.0, 1.0);
+					}
+					dlgHBoxLayout {
+						dlgLabel("W_perc\t: ");
+						dlgRealEdit(w_perc, 0.0, 1.0);
+					}
+				}
+			}
+			
+			dlgGroup("Vertical") {
+				dlgVBoxLayout {
+					dlgHBoxLayout {
+						dlgLabel("H_min\t: ");
+						dlgRealEdit(h_min, 0.0, 1.0);
+					}
+					dlgHBoxLayout {
+						dlgLabel("H_perc\t: ");
+						dlgRealEdit(h_perc, 0.0, 1.0);
+					}
+				}
+			}
+			
+		}
+		
+		pads_per_side = num_smds/sides;
+		int side_count = 0;
+		if (DEBUG) string textview_data, temp;
+		
+		while(side_count<sides){
+			limits[side_count] = (side_count+1)*pads_per_side;
+			if (DEBUG){
+				sprintf(temp, "%d-", limits[side_count]);
+				textview_data+=temp;
+			}
+			side_count++;
+		}
+		
+		if (DEBUG){
+			textview_data+="\n----------------------\n";
+		
+			int l_count=0;
+			while(l_count<data_count){
+				string list[];
+				strsplit(list, t_data[l_count], '\t');
+				int smd_id = strtod(list[0]);
+				
+				if ((smd_id>limits[0] && smd_id<=limits[1]) || (smd_id>limits[2] && smd_id<=limits[3])){
+					sprintf(temp, "%d-%s\n", smd_id, "FLIP");
+					textview_data+=temp;
+				} 
+				else {
+					sprintf(temp, "%d-%s\n", smd_id, "----");
+					textview_data+=temp;
+				}
+				
+				l_count++;
+			}
+			dlgTextView(textview_data);
+		}
+		
+		dlgPushButton("Apply All") apply_all_tCream();
 	};
 }
 
