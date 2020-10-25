@@ -22,16 +22,18 @@
 // - Added auto shrink percentage rotation based on sides and # of SMDs.
 // - Added layer selection
 
-// ToDo
+// 1.2
 // - Add option to select Quad pack (QFP) or Small Outline pack (SOP) and use # of pads
 //	 to decide vertical and horizontal pads. Then only shrink the width.
+
+// ToDo
 
 //----------------------------------------------------------------------------------------
 
 // int DEBUG=1;
 int DEBUG=0;
 
-string Version="1.1-dev";
+string Version="1.2";
 string Name="Custom SMD tCream";
 
 string lst_packages[];
@@ -51,6 +53,7 @@ real w_perc=1.0;
 int layer=31;
 int num_smds;
 int sides = 4;
+int DO_perc_rot=0;
 
 int pads_per_side;
 int limits[];
@@ -106,17 +109,22 @@ string calc_tc_box(string data_line){
 	dy = strtod(list[4]);
 	
 	real h, w, x1, x2, y1, y2;
-	
-	int smd_id = strtod(list[0]);
 	real h_perc_new, w_perc_new;
 	
-	if ((smd_id>limits[0] && smd_id<=limits[1]) || (smd_id>limits[2] && smd_id<=limits[3])){
+	if (DO_perc_rot==1){
+		int smd_id = strtod(list[0]);
+		
+		if ((smd_id>limits[0] && smd_id<=limits[1]) || (smd_id>limits[2] && smd_id<=limits[3])){
+			h_perc_new = w_perc;
+			w_perc_new = h_perc;
+		} 
+		else {
+			h_perc_new = h_perc;
+			w_perc_new = w_perc;
+		}
+	} else {
 		h_perc_new = w_perc;
 		w_perc_new = h_perc;
-	} 
-	else {
-		h_perc_new = h_perc;
-		w_perc_new = w_perc;
 	}
 	
 	//calc h,w of the box
@@ -154,6 +162,18 @@ void some_func(string data_line){
 }
 
 void apply_all_tCream(void){
+	if (sides==4) DO_perc_rot=1;
+	
+	if (DO_perc_rot==1){
+		pads_per_side = num_smds/sides;
+		int side_count = 0;
+
+		while(side_count<sides){
+			limits[side_count] = (side_count+1)*pads_per_side;
+			side_count++;
+		}
+	}
+	
 	int l_count=0;
 	string data_line, data_all;
 	while(l_count<data_count){
@@ -196,10 +216,20 @@ void get_smd_info(string pac_name){
 		dlgHBoxLayout {
 			dlgLabel("<b>"+pac_name+"</b>");
 			dlgStretch(1);
-			dlgLabel("# SMDs: " + num_smds_str);
+			dlgLabel("# of SMDs: " + num_smds_str);
 		}
 		
 		dlgListView(Headers, t_data, line_Selected) some_func(t_data[line_Selected]);
+		
+		dlgGroup("Horizontal") {
+		dlgHBoxLayout {
+			dlgLabel("Sides (QFP=4, SOP=2)\t: ");
+			dlgIntEdit(sides, 2, 4);
+			dlgStretch(1);
+			dlgLabel("Layer\t: ");
+			dlgIntEdit(layer, 1, 255);
+		}
+		}
 		
 		dlgHBoxLayout {
 			dlgGroup("Horizontal") {
@@ -230,20 +260,7 @@ void get_smd_info(string pac_name){
 			
 		}
 		
-		pads_per_side = num_smds/sides;
-		int side_count = 0;
-
-		while(side_count<sides){
-			limits[side_count] = (side_count+1)*pads_per_side;
-			side_count++;
-		}
-		
-		dlgHBoxLayout {
-			dlgLabel("Layer\t: ");
-			dlgIntEdit(layer, 1, 255);
-			dlgStretch(1);
-			dlgPushButton("Apply All") apply_all_tCream();
-		}
+		dlgPushButton("Apply All") apply_all_tCream();
 		// <<< GUI
 	};
 }
