@@ -1,0 +1,318 @@
+#require 6.5100
+
+#usage "en:<qt><b>Create custom SMD tCream for QFP and SOP package</b>"
+       "<p>"
+       "This ULP generates a SCRIPT file that draws rectangles on top of each SMD pad.<br>"
+       "These rectangles are smaller than the size of the pad. "
+	   "This allow the creation of stencils with smaller cut-outs, which removes "
+	   "the problem of adjacent pads shorting during reflow process."
+	   "<p style=\"color:red\"><b>Works only with footprints made with createsymsmdpackage_rel3</b></p>"
+       "<author>Author: Sameera Sandaruwan - basameera@protonmail.com</author></qt>"
+
+// THIS PROGRAM IS PROVIDED AS IS AND WITHOUT WARRANTY OF ANY KIND, EXPRESSED OR IMPLIED
+
+
+// Revision history:
+//
+// 1.0
+// - Initial release
+//
+// 1.1
+// - Add option to change shrink percentage.
+// - Added auto shrink percentage rotation based on sides and # of SMDs.
+// - Added layer selection
+
+// 1.2
+// - Add option to select Quad pack (QFP) or Small Outline pack (SOP) and use # of pads
+//	 to decide vertical and horizontal pads. Then only shrink the width.
+
+// 1.3
+
+
+// ToDo
+// - Added option to switch ON/OFF Auto Rotate - NOT Working Properly
+// - Update help
+//----------------------------------------------------------------------------------------
+
+// int DEBUG=1;
+int DEBUG=0;
+
+string Version="1.3";
+string Name="Custom SMD tCream";
+
+string lst_packages[];
+int Selected = -1, line_Selected = -1;
+
+string Headers = "Name\tX\tY\tdx\tdy\tAngle";
+string t_line;
+string t_data[];
+int data_count=0;
+
+string script_filename = "add_tCream.scr";
+string script_path;
+
+real h_min=0.1, w_min=0.1;//mm
+real h_perc=0.75;
+real w_perc=1.0;
+int layer=31;
+int num_smds;
+int sides = 4;
+int auto_rotate=0;
+int DO_perc_rot=1;
+
+int pads_per_side;
+int limits[];
+
+if (library) {
+	library(L) {
+		script_path = filedir(L.name);
+	}
+}
+
+// === functions ===
+void get_packages(void){
+	int cnt=0;
+	library(L) {
+	L.packages(PAC) {
+		lst_packages[cnt]=PAC.name;cnt++;
+	}
+	}
+}
+
+void runscript(void) {
+	int Result=0;
+	string script;
+	int s = fileread(script, script_path + script_filename);
+	Result = dlgDialog("Accept Script?") {
+		dlgHBoxLayout dlgSpacing(300);
+		dlgHBoxLayout {
+			dlgVBoxLayout dlgSpacing(300);
+			dlgTextEdit(script);
+		}
+		dlgHBoxLayout {
+			dlgStretch(0);
+			dlgPushButton("+Run script") dlgAccept();
+			dlgStretch(1);
+			dlgPushButton("-Cancel") dlgReject();
+			dlgStretch(0);
+		}
+	};
+	
+	if (Result == 1) exit ("script '" + script_path + script_filename + "'");
+	// else exit (0);
+}
+
+string calc_tc_box(string data_line){
+	
+	string list[];
+	strsplit(list, data_line, '\t');
+	
+	real x, y, dx, dy;
+	x = strtod(list[1]);
+	y = strtod(list[2]);
+	dx = strtod(list[3]);
+	dy = strtod(list[4]);
+	
+	real h, w, x1, x2, y1, y2;
+	real h_perc_new, w_perc_new;
+	
+	if (auto_rotate==1){//to be used with 
+		if (DO_perc_rot==1){//QFP
+			int smd_id = strtod(list[0]);
+			
+			if ((smd_id>limits[0] && smd_id<=limits[1]) || (smd_id>limits[2] && smd_id<=limits[3])){
+				h_perc_new = w_perc;
+				w_perc_new = h_perc;
+			} 
+			else {
+				h_perc_new = h_perc;
+				w_perc_new = w_perc;
+			}
+		} else {//SOP
+			h_perc_new = w_perc;
+			w_perc_new = h_perc;
+		}
+	} else { //to be used with footprints made with Library.io
+		h_perc_new = h_perc;
+		w_perc_new = w_perc;
+	}
+	
+	//calc h,w of the box
+	h = h_perc_new*dy;
+	w = w_perc_new*dx;
+	
+	//constraint box size
+	if (h<h_min) h=h_min;
+	if (w<w_min) w=w_min;
+	
+	x1 = x - (w/2);
+	x2 = x + (w/2);
+	
+	y1 = y - (h/2);
+	y2 = y + (h/2);
+	
+	string data;
+	sprintf(data, "RECT (%f %f)(%f %f);\n", x1, y1, x2, y2);
+	return data;
+}
+
+void write_script(string data){
+	output(script_path + script_filename, "wtD"){
+		string first_cmd;
+		sprintf(first_cmd, "grid mm;\nchange layer %d;\n", layer);
+		printf(first_cmd);
+		printf(data);
+	}
+}
+
+void some_func(string data_line){
+	string data = calc_tc_box(data_line);
+	write_script(data);
+	runscript();
+}
+
+void apply_all_tCream(void){	
+	if (DO_perc_rot==1){//QFP
+		pads_per_side = num_smds/sides;
+		int side_count = 0;
+
+		while(side_count<sides){
+			limits[side_count] = (side_count+1)*pads_per_side;
+			side_count++;
+		}
+	}
+	
+	int l_count=0;
+	string data_line, data_all;
+	while(l_count<data_count){
+		
+		data_line = calc_tc_box(t_data[l_count]);
+		data_all+=data_line;
+		l_count++;
+	}
+	write_script(data_all);
+	runscript();
+}
+
+//Get information (e.g. position, size, angle, ...) about a package
+//and show them in a table
+void get_smd_info(string pac_name){
+	
+	////====================
+	library(L) {
+	L.packages(PAC) {
+		if(PAC.name==pac_name){
+			PAC.contacts(C) {
+				if (C.smd && C.smd.layer==1){
+					sprintf(t_line,"%s\t%.2f\t%.2f\t%.2f\t%.2f\t%.1f",
+						C.name, u2mm(C.x), u2mm(C.y), u2mm(C.smd.dx), u2mm(C.smd.dy), C.smd.angle);
+					t_data[data_count]=t_line;
+					data_count++;
+				}
+			}
+		}
+	}
+	}
+	
+	dlgDialog("Window 2") {
+		string num_smds_str;
+		sprintf(num_smds_str, "%d", data_count);
+		num_smds = data_count;
+		
+		// >>> GUI
+		dlgHBoxLayout dlgSpacing(280);
+		dlgHBoxLayout {
+			dlgLabel("<b>"+pac_name+"</b>");
+			dlgStretch(1);
+			dlgLabel("# of SMDs: " + num_smds_str);
+		}
+		
+		dlgListView(Headers, t_data, line_Selected) some_func(t_data[line_Selected]);
+		
+		dlgGroup("Settings") {
+		dlgHBoxLayout {
+			dlgGroup("Auto Rotate") {
+				dlgHBoxLayout {
+					dlgRadioButton("&OFF", auto_rotate);
+					dlgRadioButton("&ON", auto_rotate);
+				}
+			}
+			dlgGroup("Package") {
+				dlgHBoxLayout {
+					dlgRadioButton("&SOP", DO_perc_rot);
+					dlgRadioButton("&QFP", DO_perc_rot);
+				}
+			}
+			dlgStretch(1);
+			dlgLabel("Layer\t: ");
+			dlgIntEdit(layer, 1, 255);
+		}
+		    
+		}
+		
+		dlgHBoxLayout {
+			dlgGroup("Horizontal") {
+				dlgVBoxLayout {
+					dlgHBoxLayout {
+						dlgLabel("W_min\t: ");
+						dlgRealEdit(w_min, 0.0, 1.0);
+					}
+					dlgHBoxLayout {
+						dlgLabel("W_perc\t: ");
+						dlgRealEdit(w_perc, 0.0, 1.0);
+					}
+				}
+			}
+			
+			dlgGroup("Vertical") {
+				dlgVBoxLayout {
+					dlgHBoxLayout {
+						dlgLabel("H_min\t: ");
+						dlgRealEdit(h_min, 0.0, 1.0);
+					}
+					dlgHBoxLayout {
+						dlgLabel("H_perc\t: ");
+						dlgRealEdit(h_perc, 0.0, 1.0);
+					}
+				}
+			}
+			
+		}
+
+		dlgPushButton("Apply All") apply_all_tCream();
+		// <<< GUI
+	};
+}
+
+//main
+if (library) {
+	int Result = 0;
+	Result = dlgDialog(Name) {
+		//GUI
+		dlgHBoxLayout dlgSpacing(200);
+		dlgLabel("<b>"+Name+"</b>");
+		get_packages();
+		
+		dlgComboBox(lst_packages, Selected) get_smd_info(lst_packages[Selected]); 
+		
+		dlgHBoxLayout {
+			dlgLabel("Version " + Version);
+			dlgStretch(1);
+			// dlgPushButton("Help") dlgMessageBox(usage, "Close");
+			
+			dlgPushButton("Help") dlgDialog("Help") {
+				dlgHBoxLayout dlgSpacing(300);
+				dlgVBoxLayout {
+					dlgTextView(usage);
+					dlgPushButton("-Close") dlgReject();
+				}
+			};
+		}
+	};
+
+}
+else{
+	
+	dlgMessageBox("! Open in Library.","+OK");
+	exit(-1);
+}
